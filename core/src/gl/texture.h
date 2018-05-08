@@ -1,7 +1,6 @@
 #pragma once
 
 #include "gl.h"
-#include "gl/disposer.h"
 #include "scene/spriteAtlas.h"
 
 #include <vector>
@@ -38,13 +37,11 @@ class Texture {
 
 public:
 
-    Texture(unsigned int _width, unsigned int _height,
-            TextureOptions _options = DEFAULT_TEXTURE_OPTION,
-            bool _generateMipmaps = false);
+    Texture(unsigned int _width, unsigned int _height, TextureOptions _options = DEFAULT_TEXTURE_OPTION,
+            bool _generateMipmaps = false, float _density = 1.f);
 
-    Texture(const std::vector<char>& _data,
-            TextureOptions _options = DEFAULT_TEXTURE_OPTION,
-            bool _generateMipmaps = false);
+    Texture(const std::vector<char>& _data, TextureOptions _options = DEFAULT_TEXTURE_OPTION,
+            bool _generateMipmaps = false, float _density = 1.f);
 
     Texture(Texture&& _other);
     Texture& operator=(Texture&& _other);
@@ -97,6 +94,9 @@ public:
     size_t bufferSize();
 
     auto& spriteAtlas() { return m_spriteAtlas; }
+    const auto& spriteAtlas() const { return m_spriteAtlas; }
+
+    float invDensity() const { return m_invDensity; }
 
 protected:
 
@@ -119,11 +119,13 @@ protected:
 
     GLenum m_target;
 
-    Disposer m_disposer;
+    RenderState* m_rs = nullptr;
 
 private:
 
     bool m_generateMipmaps;
+    // used to determine css size by using as a multiplier with the defined texture size/sprite size
+    float m_invDensity = 1.f;
 
     std::unique_ptr<SpriteAtlas> m_spriteAtlas;
 

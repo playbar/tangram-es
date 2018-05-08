@@ -554,8 +554,8 @@ bool SceneLoader::extractTexFiltering(Node& filtering, TextureFiltering& filter)
 std::shared_ptr<Texture> SceneLoader::fetchTexture(const std::shared_ptr<Platform>& platform,
                                                    const std::string& name, const std::string& urlString,
                                                    const TextureOptions& options, bool generateMipmaps,
-                                                   const std::shared_ptr<Scene>& scene) {
-
+                                                   const std::shared_ptr<Scene>& scene,
+                                                   float density, std::unique_ptr<SpriteAtlas> _atlas) {
     std::shared_ptr<Texture> texture;
 
     Url url(urlString);
@@ -575,7 +575,7 @@ std::shared_ptr<Texture> SceneLoader::fetchTexture(const std::shared_ptr<Platfor
             LOGE("Can't decode Base64 texture");
             return nullptr;
         }
-        texture = std::make_shared<Texture>(0, 0, options, generateMipmaps);
+        texture = std::make_shared<Texture>(0, 0, options, generateMipmaps, density);
 
         std::vector<char> textureData;
         auto cdata = reinterpret_cast<char*>(blob.data());
@@ -584,7 +584,8 @@ std::shared_ptr<Texture> SceneLoader::fetchTexture(const std::shared_ptr<Platfor
             LOGE("Invalid Base64 texture");
         }
     } else {
-        texture = std::make_shared<Texture>(std::vector<char>(), options, generateMipmaps);
+        texture = std::make_shared<Texture>(std::vector<char>(), options, generateMipmaps, density);
+        texture->spriteAtlas() = std::move(_atlas);
 
         scene->pendingTextures++;
         scene->startUrlRequest(platform, url, [&, url, scene, texture](UrlResponse response) {
@@ -657,16 +658,15 @@ void SceneLoader::loadTexture(const std::shared_ptr<Platform>& platform, const s
         }
     }
 
-    auto texture = fetchTexture(platform, name, url, options, generateMipmaps, scene);
+    float density = 1.f;
+    if (Node d = textureConfig["density"]) {
+        double val;
+        if (getDouble(d, val)) { density = val; }
+    }
 
+    std::unique_ptr<SpriteAtlas> atlas;
     if (Node sprites = textureConfig["sprites"]) {
-        auto atlas = std::make_unique<SpriteAtlas>();
-
-        float density = 1.f;
-        if (Node d = textureConfig["density"]) {
-            double val;
-            if (getDouble(d, val)) { density = val; }
-        }
+        atlas = std::make_unique<SpriteAtlas>();
 
         for (auto it = sprites.begin(); it != sprites.end(); ++it) {
 
@@ -674,16 +674,16 @@ void SceneLoader::loadTexture(const std::shared_ptr<Platform>& platform, const s
             const std::string& spriteName = it->first.Scalar();
 
             if (sprite) {
-                glm::vec4 desc = parseVec<glm::vec4>(sprite) * density;
+                glm::vec4 desc = parseVec<glm::vec4>(sprite);
                 glm::vec2 pos = glm::vec2(desc.x, desc.y);
                 glm::vec2 size = glm::vec2(desc.z, desc.w);
 
                 atlas->addSpriteNode(spriteName, pos, size);
             }
         }
-        atlas->updateSpriteNodes({texture->getWidth(), texture->getHeight()});
-        texture->spriteAtlas() = std::move(atlas);
     }
+    auto texture = fetchTexture(platform, name, url, options, generateMipmaps, scene, density, std::move(atlas));
+
     scene->textures().emplace(name, texture);
 }
 
@@ -1092,6 +1092,8 @@ void SceneLoader::loadSourceRasters(const std::shared_ptr<Platform>& platform, s
 }
 
 void SceneLoader::parseLightPosition(Node position, PointLight& light) {
+
+    const uint8_t allowedUnits = (Unit::pixel | Unit::meter);
     if (position.IsSequence()) {
         UnitVec<glm::vec3> lightPos;
         std::string positionSequence;
@@ -1101,7 +1103,7 @@ void SceneLoader::parseLightPosition(Node position, PointLight& light) {
             positionSequence += n.Scalar() + ",";
         }
 
-        StyleParam::parseVec3(positionSequence, {Unit::meter, Unit::pixel}, lightPos);
+        StyleParam::parseVec3(positionSequence, allowedUnits, lightPos);
         light.setPosition(lightPos);
     } else {
         LOGNode("Wrong light position parameter", position);
